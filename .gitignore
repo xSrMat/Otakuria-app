@@ -1,0 +1,21 @@
+# Build files
+.gradle
+**/.gradle
+.kotlin
+build
+**/build
+*.apk
+*.aab
+*.log
+
+# IDE files
+*.iml
+.idea/
+!.idea/icon.png
+/captures
+
+# Configuration files
+local.properties
+
+# macOS specific files
+.DS_Store
