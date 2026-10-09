@@ -63,7 +63,11 @@ class SetReadStatus(
             val syncManager = uy.kohesive.injekt.Injekt.get<eu.kanade.tachiyomi.data.sync.supabase.SupabaseSyncManager>()
             chaptersToUpdate.map { it.mangaId }.distinct().forEach { mangaId ->
                 val allChapters = chapterRepository.getChapterByMangaId(mangaId)
-                val remainingRead = allChapters.filter { it.read }
+                val remainingRead = if (read) {
+                    allChapters.filter { it.read }
+                } else {
+                    allChapters.filter { ch -> ch.read && chaptersToUpdate.none { it.id == ch.id } }
+                }
                 val maxRead = remainingRead.maxByOrNull { it.chapterNumber }
                 if (maxRead != null) {
                     syncManager.updateLastReadForManga(mangaId, maxRead.id.toString(), maxRead.name, maxRead.chapterNumber)

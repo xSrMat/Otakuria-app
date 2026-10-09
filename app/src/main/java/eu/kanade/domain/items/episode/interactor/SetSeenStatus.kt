@@ -63,7 +63,11 @@ class SetSeenStatus(
             val syncManager = uy.kohesive.injekt.Injekt.get<eu.kanade.tachiyomi.data.sync.supabase.SupabaseSyncManager>()
             episodesToUpdate.map { it.animeId }.distinct().forEach { animeId ->
                 val allEpisodes = episodeRepository.getEpisodeByAnimeId(animeId)
-                val remainingSeen = allEpisodes.filter { it.seen }
+                val remainingSeen = if (seen) {
+                    allEpisodes.filter { it.seen }
+                } else {
+                    allEpisodes.filter { ep -> ep.seen && episodesToUpdate.none { it.id == ep.id } }
+                }
                 val maxSeen = remainingSeen.maxByOrNull { it.episodeNumber }
                 if (maxSeen != null) {
                     syncManager.updateLastReadForAnime(animeId, maxSeen.id.toString(), maxSeen.name, maxSeen.episodeNumber)

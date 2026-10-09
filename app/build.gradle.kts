@@ -2,6 +2,7 @@ import mihon.buildlogic.Config
 import mihon.buildlogic.getBuildTime
 import mihon.buildlogic.getCommitCount
 import mihon.buildlogic.getGitSha
+import java.util.Properties
 
 plugins {
     id("mihon.android.application")
@@ -19,15 +20,15 @@ android {
     defaultConfig {
         applicationId = "app.otakuria"
 
-        versionCode = 30
-        versionName = "1.0.0"
+        versionCode = 31
+        versionName = "1.0.1"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
         buildConfigField("String", "BUILD_TIME", "\"${getBuildTime(useLastCommitTime = false)}\"")
-        buildConfigField("boolean", "UPDATER_ENABLED", "${Config.enableUpdater}")
+        buildConfigField("boolean", "UPDATER_ENABLED", "true")
 
-        val localProps = java.util.Properties()
+        val localProps = Properties()
         val localPropsFile = rootProject.file("local.properties")
         if (localPropsFile.exists()) {
             localProps.load(localPropsFile.inputStream())
@@ -58,6 +59,7 @@ android {
             isPseudoLocalesEnabled = true
         }
         val release by getting {
+            signingConfig = debug.signingConfig
             isMinifyEnabled = Config.enableCodeShrink
             isShrinkResources = Config.enableCodeShrink
 

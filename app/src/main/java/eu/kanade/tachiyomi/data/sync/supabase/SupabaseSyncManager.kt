@@ -472,9 +472,27 @@ class SupabaseSyncManager(
             val lastReadCh = chapters.filter { it.read }.maxByOrNull { it.chapterNumber }
             val existingCloudNum = existingCloudItem?.lastChapterNumber
                 ?: existingCloudItem?.mangaData?.get("lastChapterNumber")?.jsonPrimitive?.content?.toDoubleOrNull()
-            val effectiveChNum = lastReadCh?.chapterNumber ?: existingCloudNum
-            val effectiveChId = lastReadCh?.let { it.id.toString() } ?: existingCloudItem?.lastChapterRead
-            val effectiveChName = lastReadCh?.name ?: existingCloudItem?.lastChapterName
+            val effectiveChNum = if (lastReadCh != null) {
+                lastReadCh.chapterNumber
+            } else if (chapters.isNotEmpty() && chapters.none { it.read }) {
+                -1.0
+            } else {
+                existingCloudNum
+            }
+            val effectiveChId = if (lastReadCh != null) {
+                lastReadCh.id.toString()
+            } else if (chapters.isNotEmpty() && chapters.none { it.read }) {
+                ""
+            } else {
+                existingCloudItem?.lastChapterRead
+            }
+            val effectiveChName = if (lastReadCh != null) {
+                lastReadCh.name
+            } else if (chapters.isNotEmpty() && chapters.none { it.read }) {
+                ""
+            } else {
+                existingCloudItem?.lastChapterName
+            }
 
             val mangaDataJson = buildJsonObject {
                 put("id", cloudMangaId)
@@ -502,11 +520,16 @@ class SupabaseSyncManager(
                 if (effectiveChNum != null) {
                     put("lastChapterNumber", effectiveChNum)
                 }
-                if (!effectiveChId.isNullOrBlank()) {
-                    put("lastChapterRead", effectiveChId)
-                }
-                if (!effectiveChName.isNullOrBlank()) {
-                    put("lastChapterName", effectiveChName)
+                if (effectiveChNum != null && effectiveChNum < 0.0) {
+                    put("lastChapterRead", "")
+                    put("lastChapterName", "")
+                } else {
+                    if (!effectiveChId.isNullOrBlank()) {
+                        put("lastChapterRead", effectiveChId)
+                    }
+                    if (!effectiveChName.isNullOrBlank()) {
+                        put("lastChapterName", effectiveChName)
+                    }
                 }
             }
 
@@ -517,8 +540,8 @@ class SupabaseSyncManager(
                     mangaData = mangaDataJson,
                     categories = mangaCategories,
                     lastUpdate = localManga.lastUpdate,
-                    lastChapterRead = effectiveChId,
-                    lastChapterName = effectiveChName,
+                    lastChapterRead = if (effectiveChNum != null && effectiveChNum < 0.0) null else effectiveChId,
+                    lastChapterName = if (effectiveChNum != null && effectiveChNum < 0.0) null else effectiveChName,
                 ),
             )
         }
@@ -772,9 +795,27 @@ class SupabaseSyncManager(
             val lastSeenEp = episodes.filter { it.seen }.maxByOrNull { it.episodeNumber }
             val existingCloudNum = existingCloudItem?.lastChapterNumber
                 ?: existingCloudItem?.mangaData?.get("lastChapterNumber")?.jsonPrimitive?.content?.toDoubleOrNull()
-            val effectiveEpNum = lastSeenEp?.episodeNumber ?: existingCloudNum
-            val effectiveEpId = lastSeenEp?.let { it.id.toString() } ?: existingCloudItem?.lastChapterRead
-            val effectiveEpName = lastSeenEp?.name ?: existingCloudItem?.lastChapterName
+            val effectiveEpNum = if (lastSeenEp != null) {
+                lastSeenEp.episodeNumber
+            } else if (episodes.isNotEmpty() && episodes.none { it.seen }) {
+                -1.0
+            } else {
+                existingCloudNum
+            }
+            val effectiveEpId = if (lastSeenEp != null) {
+                lastSeenEp.id.toString()
+            } else if (episodes.isNotEmpty() && episodes.none { it.seen }) {
+                ""
+            } else {
+                existingCloudItem?.lastChapterRead
+            }
+            val effectiveEpName = if (lastSeenEp != null) {
+                lastSeenEp.name
+            } else if (episodes.isNotEmpty() && episodes.none { it.seen }) {
+                ""
+            } else {
+                existingCloudItem?.lastChapterName
+            }
 
             val animeDataJson = buildJsonObject {
                 put("id", cloudAnimeId)
@@ -807,11 +848,16 @@ class SupabaseSyncManager(
                 if (effectiveEpNum != null) {
                     put("lastChapterNumber", effectiveEpNum)
                 }
-                if (!effectiveEpId.isNullOrBlank()) {
-                    put("lastChapterRead", effectiveEpId)
-                }
-                if (!effectiveEpName.isNullOrBlank()) {
-                    put("lastChapterName", effectiveEpName)
+                if (effectiveEpNum != null && effectiveEpNum < 0.0) {
+                    put("lastChapterRead", "")
+                    put("lastChapterName", "")
+                } else {
+                    if (!effectiveEpId.isNullOrBlank()) {
+                        put("lastChapterRead", effectiveEpId)
+                    }
+                    if (!effectiveEpName.isNullOrBlank()) {
+                        put("lastChapterName", effectiveEpName)
+                    }
                 }
             }
 
@@ -822,8 +868,8 @@ class SupabaseSyncManager(
                     mangaData = animeDataJson,
                     categories = animeCategories,
                     lastUpdate = localAnime.lastUpdate,
-                    lastChapterRead = effectiveEpId,
-                    lastChapterName = effectiveEpName,
+                    lastChapterRead = if (effectiveEpNum != null && effectiveEpNum < 0.0) null else effectiveEpId,
+                    lastChapterName = if (effectiveEpNum != null && effectiveEpNum < 0.0) null else effectiveEpName,
                 ),
             )
         }
@@ -899,8 +945,23 @@ class SupabaseSyncManager(
             ?: extractNumber(cloudItem?.mangaData?.get("lastChapterName")?.jsonPrimitive?.content)
             ?: extractNumber(cloudItem?.mangaData?.get("last_chapter_read")?.jsonPrimitive?.content)
 
-        val initialMaxLocalSeen = localEpisodes.filter { it.seen }.maxByOrNull { it.episodeNumber }
-        val localIsAhead = initialMaxLocalSeen != null && (lastNumFromData == null || initialMaxLocalSeen.episodeNumber > lastNumFromData)
+        val cloudTime = cloudItem?.mangaData?.get("lastReadAt")?.jsonPrimitive?.content?.toLongOrNull()
+            ?: cloudItem?.lastUpdate
+            ?: 0L
+        val localTime = localEpisodes.filter { it.seen }.maxOfOrNull { it.lastModifiedAt } ?: 0L
+
+        // Si en la nube se desmarcó todo (número < 0 o cloudItem sin episodio leído explícito)
+        val isUnmarkedAllInCloud = (lastNumFromData != null && lastNumFromData < 0.0) ||
+            (cloudItem != null && cloudItem.lastChapterRead == null && cloudItem.lastChapterName.isNullOrBlank() && (lastNumFromData == null || lastNumFromData < 0.0))
+
+        if (isUnmarkedAllInCloud) {
+            localEpisodes.forEach { ep ->
+                if (ep.seen) {
+                    episodeRepository.updateEpisode(EpisodeUpdate(id = ep.id, seen = false))
+                }
+            }
+            return
+        }
 
         localEpisodes.forEach { ep ->
             val isSeenInCloud = cloudProgressList.any { cp ->
@@ -921,7 +982,7 @@ class SupabaseSyncManager(
                 val shouldBeSeen = epNum <= lastNumFromData
                 if (shouldBeSeen && !ep.seen) {
                     episodeRepository.updateEpisode(EpisodeUpdate(id = ep.id, seen = true))
-                } else if (!shouldBeSeen && ep.seen && !localIsAhead) {
+                } else if (!shouldBeSeen && ep.seen) {
                     episodeRepository.updateEpisode(EpisodeUpdate(id = ep.id, seen = false))
                 }
             } else if (isSeenInCloud && !ep.seen) {
@@ -929,9 +990,10 @@ class SupabaseSyncManager(
             }
         }
 
-        // Si localmente hay episodios vistos más avanzados que en la nube, actualizar solo el último en user_library
-        val maxLocalSeen = initialMaxLocalSeen ?: localEpisodes.filter { it.seen }.maxByOrNull { it.episodeNumber }
-        if (maxLocalSeen != null && (lastNumFromData == null || maxLocalSeen.episodeNumber > lastNumFromData)) {
+        // Si localmente hay episodios vistos modificados más recientemente que en la nube, actualizar en Supabase
+        val updatedLocalEpisodes = episodeRepository.getEpisodeByAnimeId(localAnimeId)
+        val maxLocalSeen = updatedLocalEpisodes.filter { it.seen }.maxByOrNull { it.episodeNumber }
+        if (maxLocalSeen != null && (lastNumFromData == null || (maxLocalSeen.episodeNumber > lastNumFromData && localTime > cloudTime))) {
             val localAnime = animeRepository.getAnimeById(localAnimeId)
             client.updateLastRead(
                 userId = userId,
@@ -962,8 +1024,23 @@ class SupabaseSyncManager(
             ?: extractNumber(cloudItem?.mangaData?.get("lastChapterName")?.jsonPrimitive?.content)
             ?: extractNumber(cloudItem?.mangaData?.get("last_chapter_read")?.jsonPrimitive?.content)
 
-        val initialMaxLocalRead = localChapters.filter { it.read }.maxByOrNull { it.chapterNumber }
-        val localIsAhead = initialMaxLocalRead != null && (lastNumFromData == null || initialMaxLocalRead.chapterNumber > lastNumFromData)
+        val cloudTime = cloudItem?.mangaData?.get("lastReadAt")?.jsonPrimitive?.content?.toLongOrNull()
+            ?: cloudItem?.lastUpdate
+            ?: 0L
+        val localTime = localChapters.filter { it.read }.maxOfOrNull { it.lastModifiedAt } ?: 0L
+
+        // Si en la nube se desmarcó todo (número < 0 o cloudItem sin capítulo leído explícito)
+        val isUnmarkedAllInCloud = (lastNumFromData != null && lastNumFromData < 0.0) ||
+            (cloudItem != null && cloudItem.lastChapterRead == null && cloudItem.lastChapterName.isNullOrBlank() && (lastNumFromData == null || lastNumFromData < 0.0))
+
+        if (isUnmarkedAllInCloud) {
+            localChapters.forEach { ch ->
+                if (ch.read) {
+                    chapterRepository.updateChapter(ChapterUpdate(id = ch.id, read = false))
+                }
+            }
+            return
+        }
 
         localChapters.forEach { ch ->
             val isReadInCloud = cloudProgressList.any { cp ->
@@ -984,7 +1061,7 @@ class SupabaseSyncManager(
                 val shouldBeRead = chNum <= lastNumFromData
                 if (shouldBeRead && !ch.read) {
                     chapterRepository.updateChapter(ChapterUpdate(id = ch.id, read = true))
-                } else if (!shouldBeRead && ch.read && !localIsAhead) {
+                } else if (!shouldBeRead && ch.read) {
                     chapterRepository.updateChapter(ChapterUpdate(id = ch.id, read = false))
                 }
             } else if (isReadInCloud && !ch.read) {
@@ -992,9 +1069,10 @@ class SupabaseSyncManager(
             }
         }
 
-        // Si localmente hay capítulos leídos más avanzados que en la nube, actualizar solo el último en user_library
-        val maxLocalRead = initialMaxLocalRead ?: localChapters.filter { it.read }.maxByOrNull { it.chapterNumber }
-        if (maxLocalRead != null && (lastNumFromData == null || maxLocalRead.chapterNumber > lastNumFromData)) {
+        // Si localmente hay capítulos leídos modificados más recientemente que en la nube, actualizar en Supabase
+        val updatedLocalChapters = chapterRepository.getChapterByMangaId(localMangaId)
+        val maxLocalRead = updatedLocalChapters.filter { it.read }.maxByOrNull { it.chapterNumber }
+        if (maxLocalRead != null && (lastNumFromData == null || (maxLocalRead.chapterNumber > lastNumFromData && localTime > cloudTime))) {
             val localManga = mangaRepository.getMangaById(localMangaId)
             client.updateLastRead(
                 userId = userId,
@@ -1073,6 +1151,29 @@ class SupabaseSyncManager(
                         chapterNumber = chNum,
                         itemTitle = manga.title,
                     )
+                } else {
+                    val allChapters = chapterRepository.getChapterByMangaId(mangaId)
+                    val remainingRead = allChapters.filter { it.read }
+                    val maxRead = remainingRead.maxByOrNull { it.chapterNumber }
+                    if (maxRead != null) {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudMangaId,
+                            chapterOrEpId = maxRead.id.toString(),
+                            chapterOrEpName = maxRead.name,
+                            chapterNumber = maxRead.chapterNumber,
+                            itemTitle = manga.title,
+                        )
+                    } else {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudMangaId,
+                            chapterOrEpId = "",
+                            chapterOrEpName = "",
+                            chapterNumber = -1.0,
+                            itemTitle = manga.title,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 logcat(LogPriority.WARN, e) { "Error al sincronizar lectura de capítulo $chapterId de manga $mangaId" }
@@ -1100,6 +1201,29 @@ class SupabaseSyncManager(
                         chapterNumber = epNum,
                         itemTitle = anime.title,
                     )
+                } else {
+                    val allEpisodes = episodeRepository.getEpisodeByAnimeId(animeId)
+                    val remainingSeen = allEpisodes.filter { it.seen }
+                    val maxSeen = remainingSeen.maxByOrNull { it.episodeNumber }
+                    if (maxSeen != null) {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudAnimeId,
+                            chapterOrEpId = maxSeen.id.toString(),
+                            chapterOrEpName = maxSeen.name,
+                            chapterNumber = maxSeen.episodeNumber,
+                            itemTitle = anime.title,
+                        )
+                    } else {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudAnimeId,
+                            chapterOrEpId = "",
+                            chapterOrEpName = "",
+                            chapterNumber = -1.0,
+                            itemTitle = anime.title,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 logcat(LogPriority.WARN, e) { "Error al sincronizar reproducción de episodio $episodeId de anime $animeId" }
@@ -1126,6 +1250,29 @@ class SupabaseSyncManager(
                         chapterNumber = lastCh.chapterNumber,
                         itemTitle = manga.title,
                     )
+                } else {
+                    val allChapters = chapterRepository.getChapterByMangaId(mangaId)
+                    val remainingRead = allChapters.filter { ch -> ch.read && chapters.none { it.id == ch.id } }
+                    val maxRead = remainingRead.maxByOrNull { it.chapterNumber }
+                    if (maxRead != null) {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudMangaId,
+                            chapterOrEpId = maxRead.id.toString(),
+                            chapterOrEpName = maxRead.name,
+                            chapterNumber = maxRead.chapterNumber,
+                            itemTitle = manga.title,
+                        )
+                    } else {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudMangaId,
+                            chapterOrEpId = "",
+                            chapterOrEpName = "",
+                            chapterNumber = -1.0,
+                            itemTitle = manga.title,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 logcat(LogPriority.WARN, e) { "Error al sincronizar capítulos de manga $mangaId" }
@@ -1152,6 +1299,29 @@ class SupabaseSyncManager(
                         chapterNumber = lastEp.episodeNumber,
                         itemTitle = anime.title,
                     )
+                } else {
+                    val allEpisodes = episodeRepository.getEpisodeByAnimeId(animeId)
+                    val remainingSeen = allEpisodes.filter { ep -> ep.seen && episodes.none { it.id == ep.id } }
+                    val maxSeen = remainingSeen.maxByOrNull { it.episodeNumber }
+                    if (maxSeen != null) {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudAnimeId,
+                            chapterOrEpId = maxSeen.id.toString(),
+                            chapterOrEpName = maxSeen.name,
+                            chapterNumber = maxSeen.episodeNumber,
+                            itemTitle = anime.title,
+                        )
+                    } else {
+                        client.updateLastRead(
+                            userId = userId,
+                            mangaOrAnimeId = cloudAnimeId,
+                            chapterOrEpId = "",
+                            chapterOrEpName = "",
+                            chapterNumber = -1.0,
+                            itemTitle = anime.title,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 logcat(LogPriority.WARN, e) { "Error al sincronizar episodios de anime $animeId" }

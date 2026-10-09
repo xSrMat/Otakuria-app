@@ -41,11 +41,7 @@ class AppUpdateChecker {
 }
 
 val GITHUB_REPO: String by lazy {
-    if (isPreviewBuildType) {
-        "aniyomiorg/aniyomi-preview"
-    } else {
-        "aniyomiorg/aniyomi"
-    }
+    "xSrMat/Otakuria-app"
 }
 
 val RELEASE_TAG: String by lazy {

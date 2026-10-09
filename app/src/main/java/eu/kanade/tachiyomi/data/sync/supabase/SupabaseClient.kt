@@ -671,7 +671,7 @@ class SupabaseClient(
             val existingData = existingItem?.mangaData
             val isUnmarkingAll = chapterNumber != null && chapterNumber < 0.0
             val finalNum = if (chapterNumber != null) {
-                if (isUnmarkingAll) null else chapterNumber
+                if (isUnmarkingAll) -1.0 else chapterNumber
             } else {
                 existingItem?.lastChapterNumber
                     ?: existingData?.get("lastChapterNumber")?.jsonPrimitive?.content?.toDoubleOrNull()
@@ -713,6 +713,19 @@ class SupabaseClient(
                     .build()
             }
             if (resp.isSuccessful) {
+                if (isUnmarkingAll) {
+                    try {
+                        val progressUrl = "${getBaseUrl()}/rest/v1/user_chapter_progress?user_id=eq.$userId&manga_id=eq.$encodedId"
+                        executeWithAuth { token ->
+                            Request.Builder()
+                                .url(progressUrl)
+                                .addHeader("apikey", getAnonKey())
+                                .addHeader("Authorization", "Bearer $token")
+                                .delete()
+                                .build()
+                        }
+                    } catch (_: Exception) {}
+                }
                 Result.success(Unit)
             } else {
                 val errBody = resp.body?.string().orEmpty()

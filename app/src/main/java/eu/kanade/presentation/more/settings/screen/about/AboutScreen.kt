@@ -179,7 +179,7 @@ object AboutScreen : Screen() {
                         LinkIcon(
                             label = stringResource(MR.strings.website),
                             icon = Icons.Outlined.Public,
-                            url = "https://aniyomi.org",
+                            url = "https://otakuria.com",
                         )
                         LinkIcon(
                             label = "Discord",
@@ -189,7 +189,7 @@ object AboutScreen : Screen() {
                         LinkIcon(
                             label = "GitHub",
                             icon = CustomIcons.Github,
-                            url = "https://github.com/aniyomiorg/aniyomi",
+                            url = "https://github.com/xSrMat/Otakuria-app",
                         )
                     }
                 }
