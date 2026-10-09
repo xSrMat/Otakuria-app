@@ -20,8 +20,8 @@ android {
     defaultConfig {
         applicationId = "app.otakuria"
 
-        versionCode = 31
-        versionName = "1.0.1"
+        versionCode = 32
+        versionName = "1.0.2"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

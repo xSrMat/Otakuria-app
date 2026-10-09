@@ -258,7 +258,12 @@ class SupabaseSyncManager(
         val seenCloudKeys = mutableSetOf<String>()
         val cloudIdsToDelete = mutableListOf<String>()
 
-        cloudMangaItems.forEach { item ->
+        val sortedCloudManga = cloudMangaItems.sortedByDescending { item ->
+            val readAtMs = parseTimestamp(item.lastReadAt ?: item.mangaData["lastReadAt"]?.jsonPrimitive?.content)
+            maxOf(item.lastUpdate, readAtMs)
+        }
+
+        sortedCloudManga.forEach { item ->
             val title = item.mangaData["title"]?.jsonPrimitive?.content?.trim()?.lowercase().orEmpty()
             val path = cleanRelativePath(item.mangaData["path"]?.jsonPrimitive?.content ?: item.mangaData["url"]?.jsonPrimitive?.content.orEmpty()).lowercase()
             val key = if (title.isNotEmpty()) "title_$title" else if (path.isNotEmpty()) "path_$path" else item.id
@@ -581,7 +586,12 @@ class SupabaseSyncManager(
         val seenCloudAnimeKeys = mutableSetOf<String>()
         val cloudAnimeIdsToDelete = mutableListOf<String>()
 
-        cloudAnimeItems.forEach { item ->
+        val sortedCloudAnime = cloudAnimeItems.sortedByDescending { item ->
+            val readAtMs = parseTimestamp(item.lastReadAt ?: item.mangaData["lastReadAt"]?.jsonPrimitive?.content)
+            maxOf(item.lastUpdate, readAtMs)
+        }
+
+        sortedCloudAnime.forEach { item ->
             val title = item.mangaData["title"]?.jsonPrimitive?.content?.trim()?.lowercase().orEmpty()
             val path = cleanRelativePath(item.mangaData["path"]?.jsonPrimitive?.content ?: item.mangaData["url"]?.jsonPrimitive?.content.orEmpty()).lowercase()
             val key = if (title.isNotEmpty()) "title_$title" else if (path.isNotEmpty()) "path_$path" else item.id
@@ -889,6 +899,13 @@ class SupabaseSyncManager(
 
     // ---------------- IN-MEMORY CHAPTER / EPISODE MATCHING ----------------
 
+    private fun parseTimestamp(str: String?): Long {
+        if (str.isNullOrBlank()) return 0L
+        return runCatching {
+            str.toLongOrNull() ?: java.time.Instant.parse(str).toEpochMilli()
+        }.getOrDefault(0L)
+    }
+
     private fun extractNumber(str: String?): Double? {
         if (str.isNullOrBlank()) return null
         try {
@@ -939,20 +956,21 @@ class SupabaseSyncManager(
 
         val lastNumFromData = cloudItem?.lastChapterNumber
             ?: cloudItem?.mangaData?.get("lastChapterNumber")?.jsonPrimitive?.content?.toDoubleOrNull()
+            ?: cloudItem?.mangaData?.get("last_chapter_number")?.jsonPrimitive?.content?.toDoubleOrNull()
             ?: extractNumber(cloudItem?.lastChapterName)
             ?: extractNumber(cloudItem?.lastChapterRead)
             ?: extractNumber(cloudItem?.mangaData?.get("last_chapter_name")?.jsonPrimitive?.content)
             ?: extractNumber(cloudItem?.mangaData?.get("lastChapterName")?.jsonPrimitive?.content)
             ?: extractNumber(cloudItem?.mangaData?.get("last_chapter_read")?.jsonPrimitive?.content)
 
-        val cloudTime = cloudItem?.mangaData?.get("lastReadAt")?.jsonPrimitive?.content?.toLongOrNull()
+        val cloudTime = parseTimestamp(cloudItem?.lastReadAt ?: cloudItem?.mangaData?.get("lastReadAt")?.jsonPrimitive?.content).takeIf { it > 0 }
             ?: cloudItem?.lastUpdate
             ?: 0L
         val localTime = localEpisodes.filter { it.seen }.maxOfOrNull { it.lastModifiedAt } ?: 0L
 
         // Si en la nube se desmarcó todo (número < 0 o cloudItem sin episodio leído explícito)
         val isUnmarkedAllInCloud = (lastNumFromData != null && lastNumFromData < 0.0) ||
-            (cloudItem != null && cloudItem.lastChapterRead == null && cloudItem.lastChapterName.isNullOrBlank() && (lastNumFromData == null || lastNumFromData < 0.0))
+            (cloudItem != null && (cloudItem.lastChapterRead.isNullOrBlank() || cloudItem.lastChapterRead == "null") && (cloudItem.lastChapterName.isNullOrBlank() || cloudItem.lastChapterName == "null") && (lastNumFromData == null || lastNumFromData < 0.0))
 
         if (isUnmarkedAllInCloud) {
             localEpisodes.forEach { ep ->
@@ -973,12 +991,12 @@ class SupabaseSyncManager(
                 val cpName = cp.chapterName?.trim().orEmpty()
                 if (cpName.isNotEmpty() && (cpName.equals(ep.name.trim(), ignoreCase = true) || ep.name.contains(cpName, ignoreCase = true))) return@any true
                 val cpNum = extractNumber(cp.chapterId) ?: extractNumber(cp.chapterName)
-                if (cpNum != null && ep.episodeNumber > 0.0 && (cpNum == ep.episodeNumber || Math.abs(cpNum - ep.episodeNumber) < 0.05)) return@any true
+                if (cpNum != null && ep.episodeNumber >= 0.0 && (cpNum == ep.episodeNumber || Math.abs(cpNum - ep.episodeNumber) < 0.05)) return@any true
                 false
             }
 
-            val epNum = if (ep.episodeNumber > 0.0) ep.episodeNumber else (extractNumber(ep.name) ?: extractNumber(ep.url) ?: 0.0)
-            if (lastNumFromData != null && epNum > 0.0) {
+            val epNum = if (ep.episodeNumber >= 0.0) ep.episodeNumber else (extractNumber(ep.name) ?: extractNumber(ep.url) ?: -1.0)
+            if (lastNumFromData != null && epNum >= 0.0) {
                 val shouldBeSeen = epNum <= lastNumFromData
                 if (shouldBeSeen && !ep.seen) {
                     episodeRepository.updateEpisode(EpisodeUpdate(id = ep.id, seen = true))
@@ -993,7 +1011,7 @@ class SupabaseSyncManager(
         // Si localmente hay episodios vistos modificados más recientemente que en la nube, actualizar en Supabase
         val updatedLocalEpisodes = episodeRepository.getEpisodeByAnimeId(localAnimeId)
         val maxLocalSeen = updatedLocalEpisodes.filter { it.seen }.maxByOrNull { it.episodeNumber }
-        if (maxLocalSeen != null && (lastNumFromData == null || (maxLocalSeen.episodeNumber > lastNumFromData && localTime > cloudTime))) {
+        if (maxLocalSeen != null && lastNumFromData != null && maxLocalSeen.episodeNumber > lastNumFromData && localTime > cloudTime) {
             val localAnime = animeRepository.getAnimeById(localAnimeId)
             client.updateLastRead(
                 userId = userId,
@@ -1018,20 +1036,21 @@ class SupabaseSyncManager(
 
         val lastNumFromData = cloudItem?.lastChapterNumber
             ?: cloudItem?.mangaData?.get("lastChapterNumber")?.jsonPrimitive?.content?.toDoubleOrNull()
+            ?: cloudItem?.mangaData?.get("last_chapter_number")?.jsonPrimitive?.content?.toDoubleOrNull()
             ?: extractNumber(cloudItem?.lastChapterName)
             ?: extractNumber(cloudItem?.lastChapterRead)
             ?: extractNumber(cloudItem?.mangaData?.get("last_chapter_name")?.jsonPrimitive?.content)
             ?: extractNumber(cloudItem?.mangaData?.get("lastChapterName")?.jsonPrimitive?.content)
             ?: extractNumber(cloudItem?.mangaData?.get("last_chapter_read")?.jsonPrimitive?.content)
 
-        val cloudTime = cloudItem?.mangaData?.get("lastReadAt")?.jsonPrimitive?.content?.toLongOrNull()
+        val cloudTime = parseTimestamp(cloudItem?.lastReadAt ?: cloudItem?.mangaData?.get("lastReadAt")?.jsonPrimitive?.content).takeIf { it > 0 }
             ?: cloudItem?.lastUpdate
             ?: 0L
         val localTime = localChapters.filter { it.read }.maxOfOrNull { it.lastModifiedAt } ?: 0L
 
         // Si en la nube se desmarcó todo (número < 0 o cloudItem sin capítulo leído explícito)
         val isUnmarkedAllInCloud = (lastNumFromData != null && lastNumFromData < 0.0) ||
-            (cloudItem != null && cloudItem.lastChapterRead == null && cloudItem.lastChapterName.isNullOrBlank() && (lastNumFromData == null || lastNumFromData < 0.0))
+            (cloudItem != null && (cloudItem.lastChapterRead.isNullOrBlank() || cloudItem.lastChapterRead == "null") && (cloudItem.lastChapterName.isNullOrBlank() || cloudItem.lastChapterName == "null") && (lastNumFromData == null || lastNumFromData < 0.0))
 
         if (isUnmarkedAllInCloud) {
             localChapters.forEach { ch ->
@@ -1052,12 +1071,12 @@ class SupabaseSyncManager(
                 val cpName = cp.chapterName?.trim().orEmpty()
                 if (cpName.isNotEmpty() && (cpName.equals(ch.name.trim(), ignoreCase = true) || ch.name.contains(cpName, ignoreCase = true))) return@any true
                 val cpNum = extractNumber(cp.chapterId) ?: extractNumber(cp.chapterName)
-                if (cpNum != null && ch.chapterNumber > 0.0 && (cpNum == ch.chapterNumber || Math.abs(cpNum - ch.chapterNumber) < 0.05)) return@any true
+                if (cpNum != null && ch.chapterNumber >= 0.0 && (cpNum == ch.chapterNumber || Math.abs(cpNum - ch.chapterNumber) < 0.05)) return@any true
                 false
             }
 
-            val chNum = if (ch.chapterNumber > 0.0) ch.chapterNumber else (extractNumber(ch.name) ?: extractNumber(ch.url) ?: 0.0)
-            if (lastNumFromData != null && chNum > 0.0) {
+            val chNum = if (ch.chapterNumber >= 0.0) ch.chapterNumber else (extractNumber(ch.name) ?: extractNumber(ch.url) ?: -1.0)
+            if (lastNumFromData != null && chNum >= 0.0) {
                 val shouldBeRead = chNum <= lastNumFromData
                 if (shouldBeRead && !ch.read) {
                     chapterRepository.updateChapter(ChapterUpdate(id = ch.id, read = true))
@@ -1072,7 +1091,7 @@ class SupabaseSyncManager(
         // Si localmente hay capítulos leídos modificados más recientemente que en la nube, actualizar en Supabase
         val updatedLocalChapters = chapterRepository.getChapterByMangaId(localMangaId)
         val maxLocalRead = updatedLocalChapters.filter { it.read }.maxByOrNull { it.chapterNumber }
-        if (maxLocalRead != null && (lastNumFromData == null || (maxLocalRead.chapterNumber > lastNumFromData && localTime > cloudTime))) {
+        if (maxLocalRead != null && lastNumFromData != null && maxLocalRead.chapterNumber > lastNumFromData && localTime > cloudTime) {
             val localManga = mangaRepository.getMangaById(localMangaId)
             client.updateLastRead(
                 userId = userId,
@@ -1448,10 +1467,17 @@ class SupabaseSyncManager(
                 val cloudMangaId = getOrComputeCloudMangaId(manga)
                 val cloudItems = client.fetchLibrary(userId).getOrElse { emptyList() }
                 val cleanLocalPath = cleanRelativePath(manga.url)
-                val cloudItem = cloudItems.find { item ->
+                val cleanTitle = manga.title.trim().lowercase().replace(Regex("[^a-z0-9]"), "")
+                val matchingItems = cloudItems.filter { item ->
+                    val itemTitle = item.mangaData["title"]?.jsonPrimitive?.content?.trim()?.lowercase()?.replace(Regex("[^a-z0-9]"), "").orEmpty()
                     item.id == cloudMangaId ||
                         (cleanLocalPath.isNotEmpty() && cleanRelativePath(item.mangaData["url"]?.jsonPrimitive?.content.orEmpty()) == cleanLocalPath) ||
-                        item.mangaData["title"]?.jsonPrimitive?.content?.trim().equals(manga.title.trim(), ignoreCase = true)
+                        item.mangaData["title"]?.jsonPrimitive?.content?.trim().equals(manga.title.trim(), ignoreCase = true) ||
+                        (cleanTitle.isNotEmpty() && itemTitle == cleanTitle)
+                }
+                val cloudItem = matchingItems.maxByOrNull { item ->
+                    val readAtMs = parseTimestamp(item.lastReadAt ?: item.mangaData["lastReadAt"]?.jsonPrimitive?.content)
+                    maxOf(item.lastUpdate, readAtMs)
                 }
 
                 applyMangaChapterProgressInMemory(userId, cloudItem?.id ?: cloudMangaId, mangaId, cloudItem = cloudItem)
@@ -1474,10 +1500,17 @@ class SupabaseSyncManager(
                 val cloudAnimeId = getOrComputeCloudAnimeId(anime)
                 val cloudItems = client.fetchLibrary(userId).getOrElse { emptyList() }
                 val cleanLocalPath = cleanRelativePath(anime.url)
-                val cloudItem = cloudItems.find { item ->
+                val cleanTitle = anime.title.trim().lowercase().replace(Regex("[^a-z0-9]"), "")
+                val matchingItems = cloudItems.filter { item ->
+                    val itemTitle = item.mangaData["title"]?.jsonPrimitive?.content?.trim()?.lowercase()?.replace(Regex("[^a-z0-9]"), "").orEmpty()
                     item.id == cloudAnimeId ||
                         (cleanLocalPath.isNotEmpty() && cleanRelativePath(item.mangaData["url"]?.jsonPrimitive?.content.orEmpty()) == cleanLocalPath) ||
-                        item.mangaData["title"]?.jsonPrimitive?.content?.trim().equals(anime.title.trim(), ignoreCase = true)
+                        item.mangaData["title"]?.jsonPrimitive?.content?.trim().equals(anime.title.trim(), ignoreCase = true) ||
+                        (cleanTitle.isNotEmpty() && itemTitle == cleanTitle)
+                }
+                val cloudItem = matchingItems.maxByOrNull { item ->
+                    val readAtMs = parseTimestamp(item.lastReadAt ?: item.mangaData["lastReadAt"]?.jsonPrimitive?.content)
+                    maxOf(item.lastUpdate, readAtMs)
                 }
 
                 applyAnimeEpisodeProgressInMemory(userId, cloudItem?.id ?: cloudAnimeId, animeId, cloudItem = cloudItem)
